@@ -7,8 +7,11 @@
 ![类型](https://img.shields.io/badge/类型-Agent%20Skill-blue)
 ![输出](https://img.shields.io/badge/输出-Markdown-000000?logo=markdown&logoColor=white)
 ![学科](https://img.shields.io/badge/学科模板-12-orange)
+![依赖](https://img.shields.io/badge/依赖-零第三方-brightgreen)
 ![校验](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![许可](https://img.shields.io/badge/License-MIT-green)
+
+任何支持 Agent Skills 约定的宿主都能直接装——Claude Code、WorkBuddy、自建 Agent 都行。产出是纯 Markdown，换编辑器、换 Agent、换电脑，文件本身不变。
 
 ---
 
@@ -96,17 +99,29 @@
 
 ## 安装
 
-作为 Agent Skill 使用，把整个目录放进 skills 路径即可：
+只要宿主支持 Agent Skills（`SKILL.md` + YAML front matter 那套约定），把整个目录放进它的 skills 路径就行。没有插件依赖、没有编译步骤、不用改配置：
 
 ```bash
-# 用户级（所有项目可用）
-git clone https://github.com/chenxiao-reverie/cuotiben.git ~/.workbuddy/skills/cuotiben
-
-# 项目级（仅当前项目可用）
-git clone https://github.com/chenxiao-reverie/cuotiben.git .workbuddy/skills/cuotiben
+# 先把 SKILLS_DIR 换成本机对应的 skills 目录，见下表
+git clone https://github.com/chenxiao-reverie/cuotiben.git "$SKILLS_DIR/cuotiben"
 ```
 
-目录里必须有 `SKILL.md`，加载时读它作为入口。
+几个常见宿主的默认位置：
+
+| 宿主 | 用户级 | 项目级 |
+|---|---|---|
+| Claude Code | `~/.claude/skills/cuotiben` | `<repo>/.claude/skills/cuotiben` |
+| WorkBuddy | `~/.workbuddy/skills/cuotiben` | `<repo>/.workbuddy/skills/cuotiben` |
+| 其他宿主 | 放进它的 skills 扫描目录，具体路径以文档为准 | 同左 |
+
+四个要点：
+
+- **目录名就叫 `cuotiben`**，和 `SKILL.md` 里 front matter 的 `name` 保持一致，有些宿主靠目录名做索引
+- **入口是 `SKILL.md`**。宿主按 front matter 的 `description` 判断何时加载，那段触发词是给检索用的，别删
+- **零第三方依赖**。唯一的代码是 `scripts/check_notebook.py`，只用 Python 3.9+ 标准库，`python3` 直接跑
+- 宿主若支持上传 zip，打包整个目录上传即可（别把 `.git` 打进去）
+
+宿主不支持 Agent Skills 也能用：把 `SKILL.md` 当规范文档喂给它，`examples/高中数学.md` 当范例，校验脚本单独跑——它的产出物是纯 Markdown，不绑定任何平台。
 
 ---
 
