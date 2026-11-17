@@ -11,9 +11,14 @@
     4. 每道错题的必填字段齐全
     5. 错因 7 项、掌握度 3 档的复选框数量正确
     6. 全文件复选框写法统一（默认竖排 - [ ]，旧文件可整份单行 ☐）
-    7. 「考点」引用的知识点 ID 在正文中有定义
-    8. 必备章节存在，变化信息段存在
-    9. 模块内的分组标题没有误用 ### 级
+    7. 选项拆行后每行带 A. B. 标号，且至少两项
+    8. 「考点」引用的知识点 ID 在正文中有定义
+    9. 必备章节存在，变化信息段存在
+   10. 模块内的分组标题没有误用 ### 级
+
+另有两类「该换写法了」的聚合提醒，只是警告不阻断：
+   · 选项挤在一行没拆开
+   · 知识点还在用单行竖线写法
 
 通过后额外输出「结构健康度」：模块数、最重模块、总题数、M99 积压。
 健康度只提示不阻断，退出码不受影响。
@@ -68,6 +73,9 @@ TH_M99 = 5             # 待归类积压
 INLINE_RE = re.compile(r"^\s*[-*]\s*(错因|掌握度)[：:]\s*(.+)$")
 VERTICAL_HEAD_RE = re.compile(r"^\s*[-*]\s*(错因|掌握度)[：:]\s*$")
 CHECKLINE_RE = re.compile(r"^\s*-\s*\[[ xX]\]\s*\S")
+OPT_LINE_RE = re.compile(r"^\s*-\s*[A-H][.．、)）:：]\s*\S")
+INLINE_OPT_RE = re.compile(r"[A-H][.．、)）]\s*\S")
+POINT_LINE_RE = re.compile(r"^\s*[-*]\s*\[K-[A-Z0-9]+-\d+\]")
 
 errors: list[str] = []
 warns: list[str] = []
@@ -214,7 +222,29 @@ def detect_file_style(questions):
 STYLE_NAME = {"inline": "单行 ☐", "vertical": "竖排 - [ ]"}
 
 
-def check_question(qid: int, title: str, block: str, file_style) -> None:
+def option_info(block: str):
+    """返回 (style, 选项个数)。style 为 'inline' / 'vertical' / None。"""
+    lines = block.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"^\s*[-*]\s*选项[：:]\s*(.*)$", line)
+        if not m:
+            continue
+        val = m.group(1).strip()
+        if val and val not in ("无", "无。", "略", "—"):
+            return "inline", len(INLINE_OPT_RE.findall(val))
+        n = 0
+        for l in lines[i + 1:]:
+            if OPT_LINE_RE.match(l):
+                n += 1
+            elif l.strip() == "":
+                continue
+            else:
+                break
+        return "vertical", n
+    return None, 0
+
+
+def check_question(qid: int, title: str, block: str, file_style, crammed: list) -> None:
     tag = f"Q-{qid:02d}"
     d = field_lines(block)
 
@@ -240,6 +270,13 @@ def check_question(qid: int, title: str, block: str, file_style) -> None:
                 f"{tag} 「{fname}」写法与全文件不一致"
                 f"（全文件主写法：{STYLE_NAME[file_style]}；此处：{STYLE_NAME[style]}）"
             )
+
+    # 选项：拆行后每行应带 A. B. 标号，且至少两项
+    opt_style, n_opts = option_info(block)
+    if opt_style == "vertical" and n_opts < 2:
+        err(f"{tag} 「选项」拆行后应有 ≥2 项，实际 {n_opts} 项")
+    elif opt_style == "inline" and n_opts >= 2:
+        crammed.append(tag)
 
     # 正解思路步数
     steps = re.findall(r"^\s{2,}\d+[.、)]\s+\S", block, re.M)
@@ -288,6 +325,19 @@ def check_grouping_headings(segments) -> None:
             if re.match(r"^Q-\d+", title) or title in ("知识点", "错题"):
                 continue
             warn(f"检测到模块内 ### 级标题「{title}」，分组请改用 ####")
+
+
+def check_point_format(body: str) -> None:
+    """知识点应为块状：结论一行 + 识别特征/易错点/来源 各一行。"""
+    legacy = 0
+    for line in body.splitlines():
+        if POINT_LINE_RE.match(line) and line.count("|") >= 3:
+            legacy += 1
+    if legacy:
+        warn(
+            f"{legacy} 条知识点仍是单行竖线写法，"
+            "建议改成块状（识别特征 / 易错点 / 来源 各占一行，见 card-schema）"
+        )
 
 
 def count_parse_missing(body: str) -> int:
@@ -372,8 +422,12 @@ def main() -> int:
     questions = parse_questions(body)
     file_style = detect_file_style(questions)
 
+    crammed: list = []
     for qid, title, block in questions:
-        check_question(qid, title, block, file_style)
+        check_question(qid, title, block, file_style, crammed)
+    if crammed:
+        shown = ", ".join(crammed[:5]) + ("…" if len(crammed) > 5 else "")
+        warn(f"{len(crammed)} 道题的选项挤在一行（{shown}），建议每个选项单独一行")
 
     ids = [q[0] for q in questions]
     if ids:
@@ -386,6 +440,7 @@ def main() -> int:
             err(f"题号跳号，缺: {', '.join(f'Q-{g:02d}' for g in gaps)}")
 
     point_count = check_ids(body, questions)
+    check_point_format(body)
     segments = module_segments(body)
     check_grouping_headings(segments)
 
