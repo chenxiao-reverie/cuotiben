@@ -70,12 +70,15 @@ TH_MODULE_Q = 20       # 单模块过重
 TH_TOTAL_Q = 80        # 总量过大
 TH_M99 = 5             # 待归类积压
 
-INLINE_RE = re.compile(r"^\s*[-*]\s*(错因|掌握度)[：:]\s*(.+)$")
-VERTICAL_HEAD_RE = re.compile(r"^\s*[-*]\s*(错因|掌握度)[：:]\s*$")
 CHECKLINE_RE = re.compile(r"^\s*-\s*\[[ xX]\]\s*\S")
 OPT_LINE_RE = re.compile(r"^\s*-\s*[A-H][.．、)）:：]\s*\S")
 INLINE_OPT_RE = re.compile(r"[A-H][.．、)）]\s*\S")
 POINT_LINE_RE = re.compile(r"^\s*[-*]\s*\[K-[A-Z0-9]+-\d+\]")
+
+
+def field_pat(name: str):
+    """匹配 `- **字段**：值` 形式，允许标签加粗（排版用），冒号前后空白不限。"""
+    return re.compile(rf"^\s*[-*]\s*\**{re.escape(name)}\**\s*[：:]\s*(.*)$")
 
 errors: list[str] = []
 warns: list[str] = []
@@ -159,12 +162,12 @@ def parse_questions(body: str):
 
 
 def field_lines(block: str) -> dict:
-    """抽取 `- 字段名：值` 形式的字段，返回 {字段名: 值}（重复取首个）"""
+    """抽取 `- 字段名：值` 形式（标签可加粗），返回 {字段名: 值}（重复取首个）"""
     d = {}
     for line in block.splitlines():
-        m = re.match(r"^\s*[-*]\s*([^：:]{1,20})[：:]\s*(.*)$", line)
+        m = re.match(r"^\s*[-*]\s*([^：:]{1,24})[：:]\s*(.*)$", line)
         if m:
-            key = m.group(1).strip()
+            key = m.group(1).strip().strip("*").strip()
             d.setdefault(key, m.group(2).strip())
     return d
 
@@ -182,25 +185,25 @@ def box_style_and_count(block: str, field: str):
     style 为 'inline' / 'vertical' / None。
     已勾（☑ / [x]）与未勾一样计入总数，两者都是复选框。
     """
+    pat = field_pat(field)
     lines = block.splitlines()
     for i, line in enumerate(lines):
-        mi = INLINE_RE.match(line)
-        if mi and mi.group(1) == field:
-            val = mi.group(2)
-            n = val.count("☐") + val.count("☑")
-            return ("inline", n) if n else (None, 0)
-        if VERTICAL_HEAD_RE.match(line) and re.match(
-            rf"^\s*[-*]\s*{field}[：:]\s*$", line
-        ):
-            n = 0
-            for l in lines[i + 1:]:
-                if CHECKLINE_RE.match(l):
-                    n += 1
-                elif l.strip() == "":
-                    continue
-                else:
-                    break
-            return "vertical", n
+        m = pat.match(line)
+        if not m:
+            continue
+        val = m.group(1).strip()
+        n = val.count("☐") + val.count("☑")
+        if n:
+            return "inline", n
+        k = 0
+        for l in lines[i + 1:]:
+            if CHECKLINE_RE.match(l):
+                k += 1
+            elif l.strip() == "":
+                continue
+            else:
+                break
+        return "vertical", k
     return None, 0
 
 
@@ -224,9 +227,10 @@ STYLE_NAME = {"inline": "单行 ☐", "vertical": "竖排 - [ ]"}
 
 def option_info(block: str):
     """返回 (style, 选项个数)。style 为 'inline' / 'vertical' / None。"""
+    pat = field_pat("选项")
     lines = block.splitlines()
     for i, line in enumerate(lines):
-        m = re.match(r"^\s*[-*]\s*选项[：:]\s*(.*)$", line)
+        m = pat.match(line)
         if not m:
             continue
         val = m.group(1).strip()
@@ -289,10 +293,12 @@ def check_ids(body: str, questions) -> int:
         re.findall(r"^\s*(?:[-*]\s*)?(\[K-[A-Z0-9]+-\d+\])", body, re.M)
     )
     ref_ids = set()
+    pat = field_pat("考点")
     for _, _, block in questions:
-        m = re.search(r"^\s*[-*]\s*考点[：:]\s*(.*)$", block, re.M)
-        if m:
-            ref_ids.update(re.findall(r"\[K-[A-Z0-9]+-\d+\]", m.group(1)))
+        for line in block.splitlines():
+            m = pat.match(line)
+            if m:
+                ref_ids.update(re.findall(r"\[K-[A-Z0-9]+-\d+\]", m.group(1)))
     missing = sorted(ref_ids - def_ids)
     for mid in missing:
         err(f"「考点」引用了未定义的知识点 {mid}")
